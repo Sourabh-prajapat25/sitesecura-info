@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
   const stats = {
     total: all.length,
     active: all.filter((i) => i.status === "Active").length,
-    completed: all.filter((i) => i.status === "Completed" || i.status === "Certificate Issued").length,
+    completed: all.filter((i) => i.status === "Completed").length,
     certificatesIssued: all.filter((i) => Boolean(i.certificateNumber)).length,
     upcomingEndDates: all.filter((i) => {
       if (i.status === "Completed" || i.status === "Withdrawn") return false;

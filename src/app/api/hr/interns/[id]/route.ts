@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getHrSessionFromCookies, validateCsrfOrigin } from "@/lib/auth";
-import { getInternById, updateIntern } from "@/lib/storage/intern-store";
+import {
+  getInternById,
+  updateIntern,
+  isValidStatusTransition,
+} from "@/lib/storage/intern-store";
 import { InternshipStatus } from "@/types/intern";
 
 const VALID_STATUSES: InternshipStatus[] = [
@@ -8,7 +12,6 @@ const VALID_STATUSES: InternshipStatus[] = [
   "Onboarding",
   "Active",
   "Completed",
-  "Certificate Issued",
   "Withdrawn",
 ];
 
@@ -64,6 +67,20 @@ export async function PATCH(
           { status: 400 }
         );
       }
+
+      const transitionCheck = isValidStatusTransition(
+        existing.status,
+        body.status,
+        Boolean(body.isAdministrativeOverride)
+      );
+
+      if (!transitionCheck.allowed) {
+        return NextResponse.json(
+          { error: transitionCheck.reason || "Prohibited lifecycle transition." },
+          { status: 400 }
+        );
+      }
+
       updates.status = body.status;
     }
 

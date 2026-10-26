@@ -270,3 +270,88 @@ export function validateCsrfOrigin(request: NextRequest): boolean {
   // If neither origin nor referer header is provided on a browser mutation, reject
   return false;
 }
+
+const GRANT_MAX_AGE_SECONDS = 30 * 60; // 30 minutes
+
+/**
+ * Creates a short-lived cryptographically signed token authorizing an intern
+ * to download their specific issued certificate.
+ * Protects certificate files from direct unauthorized access and enumeration.
+ */
+export function createCertificateDownloadGrant(
+  internId: string,
+  certificateNumber: string
+): string {
+  const expiresAt = Math.floor(Date.now() / 1000) + GRANT_MAX_AGE_SECONDS;
+  const rawPayload = JSON.stringify({
+    internId: internId.trim().toUpperCase(),
+    cert: certificateNumber.trim().toUpperCase(),
+    exp: expiresAt,
+    salt: crypto.randomBytes(8).toString("hex"),
+  });
+  const payloadB64 = Buffer.from(rawPayload).toString("base64url");
+  const signature = signPayload(payloadB64, getSessionSecret());
+  return `${payloadB64}.${signature}`;
+}
+
+/**
+ * Verifies a certificate download grant token.
+ * Validates expiration, HMAC SHA-256 signature, and certificate identifier.
+ */
+export function verifyCertificateDownloadGrant(
+  token: string,
+  expectedCertNumber?: string
+): { valid: boolean; internId?: string; certificateNumber?: string; reason?: string } {
+  if (!token || typeof token !== "string") {
+    return { valid: false, reason: "Missing download authorization grant." };
+  }
+
+  const parts = token.split(".");
+  if (parts.length !== 2) {
+    return { valid: false, reason: "Malformed download authorization grant." };
+  }
+
+  const [payloadB64, signature] = parts;
+  const expectedSignature = signPayload(payloadB64, getSessionSecret());
+
+  const sigBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    sigBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(sigBuffer, expectedBuffer)
+  ) {
+    return { valid: false, reason: "Invalid download grant signature." };
+  }
+
+  try {
+    const rawPayload = Buffer.from(payloadB64, "base64url").toString("utf-8");
+    const payload = JSON.parse(rawPayload);
+
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp < now) {
+      return {
+        valid: false,
+        reason: "Download authorization grant has expired. Please check your credentials again on the intern portal.",
+      };
+    }
+
+    if (
+      expectedCertNumber &&
+      payload.cert.toUpperCase() !== expectedCertNumber.trim().toUpperCase()
+    ) {
+      return {
+        valid: false,
+        reason: "Grant is not authorized for the requested certificate.",
+      };
+    }
+
+    return {
+      valid: true,
+      internId: payload.internId,
+      certificateNumber: payload.cert,
+    };
+  } catch {
+    return { valid: false, reason: "Invalid payload encoding." };
+  }
+}

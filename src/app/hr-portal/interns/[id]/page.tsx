@@ -38,8 +38,12 @@ export default function InternDetailPage() {
   const [statusVal, setStatusVal] = useState<InternshipStatus>("Registered");
   const [hrNotesVal, setHrNotesVal] = useState("");
   const [offerLetterVal, setOfferLetterVal] = useState("");
+  const [isAdminOverride, setIsAdminOverride] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isIssuingCert, setIsIssuingCert] = useState(false);
+  const [showRevokeModal, setShowRevokeModal] = useState(false);
+  const [revokeReason, setRevokeReason] = useState("");
+  const [isRevokingCert, setIsRevokingCert] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const fetchIntern = useCallback(async () => {
@@ -81,6 +85,7 @@ export default function InternDetailPage() {
           status: statusVal,
           hrNotes: hrNotesVal,
           offerLetterRef: offerLetterVal,
+          isAdministrativeOverride: isAdminOverride,
         }),
       });
 
@@ -137,6 +142,47 @@ export default function InternDetailPage() {
       setMessage({ type: "error", text: "Failed to issue certificate." });
     } finally {
       setIsIssuingCert(false);
+    }
+  }
+
+  async function handleRevokeCertificate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!intern || !intern.certificateNumber) return;
+    if (!revokeReason.trim() || revokeReason.trim().length < 5) {
+      alert("Please provide an internal revocation reason (minimum 5 characters).");
+      return;
+    }
+
+    setIsRevokingCert(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch("/api/hr/certificates/revoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          certificateNumber: intern.certificateNumber,
+          internId: intern.id,
+          reason: revokeReason.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setMessage({
+          type: "success",
+          text: `Certificate ${intern.certificateNumber} has been officially revoked.`,
+        });
+        setShowRevokeModal(false);
+        setRevokeReason("");
+        fetchIntern();
+      } else {
+        setMessage({ type: "error", text: data.error || "Failed to revoke certificate." });
+      }
+    } catch {
+      setMessage({ type: "error", text: "Network error while revoking certificate." });
+    } finally {
+      setIsRevokingCert(false);
     }
   }
 
@@ -384,9 +430,18 @@ export default function InternDetailPage() {
                     <option value="Onboarding">Onboarding</option>
                     <option value="Active">Active</option>
                     <option value="Completed">Completed</option>
-                    <option value="Certificate Issued">Certificate Issued</option>
                     <option value="Withdrawn">Withdrawn</option>
                   </select>
+
+                  <label className="flex items-center gap-2 pt-1 text-[11px] text-foreground-subtle cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isAdminOverride}
+                      onChange={(e) => setIsAdminOverride(e.target.checked)}
+                      className="rounded border-border text-primary focus:ring-primary"
+                    />
+                    <span>Administrative Override (permit non-standard lifecycle transition)</span>
+                  </label>
                 </div>
 
                 <div className="space-y-1">
@@ -440,11 +495,50 @@ export default function InternDetailPage() {
                 <Award className="h-5 w-5 text-secondary" />
               </div>
 
-              {intern.certificateNumber ? (
+              {intern.certificateStatus === "Revoked" ? (
+                <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-red-400 font-bold text-xs uppercase tracking-wider">
+                      <AlertCircle className="h-4 w-4" />
+                      <span>Certificate Revoked</span>
+                    </div>
+                    <Badge variant="error" size="sm">
+                      REVOKED
+                    </Badge>
+                  </div>
+                  <div className="font-mono text-base font-bold text-foreground">
+                    {intern.certificateNumber}
+                  </div>
+                  <div className="text-[11px] text-foreground-muted space-y-1">
+                    <div>
+                      Revoked on:{" "}
+                      {intern.certificateRevokedAt
+                        ? new Date(intern.certificateRevokedAt).toLocaleString()
+                        : "Recorded"}
+                    </div>
+                    {intern.certificateRevokedBy && (
+                      <div>Revoked by: {intern.certificateRevokedBy}</div>
+                    )}
+                    {intern.certificateRevocationReason && (
+                      <div className="p-2.5 rounded-lg bg-background-secondary border border-border/50 text-foreground text-xs mt-1">
+                        <span className="text-foreground-subtle text-[10px] uppercase font-bold block">
+                          Internal Reason:
+                        </span>
+                        {intern.certificateRevocationReason}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : intern.certificateNumber ? (
                 <div className="space-y-4">
                   <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 space-y-1.5">
-                    <div className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider">
-                      Official Certificate Number
+                    <div className="flex items-center justify-between">
+                      <div className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider">
+                        Official Certificate Number
+                      </div>
+                      <Badge variant="success" size="sm">
+                        ACTIVE
+                      </Badge>
                     </div>
                     <div className="font-mono text-base font-bold text-foreground">
                       {intern.certificateNumber}
@@ -473,6 +567,15 @@ export default function InternDetailPage() {
                       <span>Public Verification Link</span>
                       <ExternalLink className="h-3 w-3" />
                     </Link>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowRevokeModal(true)}
+                      className="inline-flex items-center justify-center gap-1.5 py-2 text-xs text-red-400 hover:text-red-300 hover:underline transition-colors"
+                    >
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      <span>Revoke Certificate</span>
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -507,6 +610,80 @@ export default function InternDetailPage() {
           </div>
         </div>
       </Container>
+
+      {/* Revocation Confirmation Dialog */}
+      {showRevokeModal && intern && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-md rounded-2xl border border-red-500/50 bg-background-card p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <div className="flex items-center gap-2 text-red-400 font-bold text-base">
+                <AlertCircle className="h-5 w-5" />
+                <span>Revoke Certificate</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRevokeModal(false);
+                  setRevokeReason("");
+                }}
+                className="text-foreground-subtle hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs text-foreground-muted">
+              <p>
+                You are revoking certificate{" "}
+                <strong className="font-mono text-white">
+                  {intern.certificateNumber}
+                </strong>{" "}
+                issued to <strong className="text-white">{intern.fullName}</strong>.
+              </p>
+              <p className="text-red-300">
+                This will immediately invalidate the credential on the public verification portal and
+                block all PDF downloads. This action is permanently audited.
+              </p>
+            </div>
+
+            <form onSubmit={handleRevokeCertificate} className="space-y-3 pt-2">
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-foreground">
+                  Internal Revocation Reason (Required)
+                </label>
+                <textarea
+                  rows={3}
+                  value={revokeReason}
+                  onChange={(e) => setRevokeReason(e.target.value)}
+                  placeholder="e.g. Disciplinary finding, issued in error, candidate request..."
+                  required
+                  className="w-full rounded-xl border border-border bg-background-secondary p-2.5 text-xs text-foreground placeholder:text-foreground-subtle focus:border-red-400 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRevokeModal(false);
+                    setRevokeReason("");
+                  }}
+                  className="px-4 py-2 rounded-xl border border-border text-xs text-foreground hover:bg-background-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isRevokingCert}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-semibold shadow-md transition-colors"
+                >
+                  {isRevokingCert ? "Revoking..." : "Confirm Revocation"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

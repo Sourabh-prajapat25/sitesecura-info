@@ -156,7 +156,7 @@ function VerifyContent() {
           {/* Verification Results Panel */}
           {result && (
             <div className="mt-6 animate-fadeIn">
-              {result.status === "Valid" && (
+              {result.status?.toUpperCase() === "VALID" && (
                 <div className="rounded-2xl border border-emerald-500/40 bg-gradient-to-br from-emerald-500/10 via-background-secondary to-background-secondary p-6 sm:p-8 space-y-6 shadow-xl">
                   {/* Status Banner */}
                   <div className="flex items-center gap-3 border-b border-emerald-500/30 pb-4">
@@ -216,7 +216,7 @@ function VerifyContent() {
                         Issuing Organization
                       </div>
                       <div className="font-medium text-foreground mt-0.5">
-                        {result.issuingOrganization}
+                        {result.issuingOrganization || "SiteSecura"}
                       </div>
                     </div>
 
@@ -237,7 +237,7 @@ function VerifyContent() {
                 </div>
               )}
 
-              {result.status === "Revoked" && (
+              {result.status?.toUpperCase() === "REVOKED" && (
                 <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-6 sm:p-8 space-y-4">
                   <div className="flex items-center gap-3">
                     <ShieldAlert className="h-8 w-8 text-amber-400" />
@@ -250,14 +250,18 @@ function VerifyContent() {
                       </div>
                     </div>
                   </div>
+                  <div className="text-xs font-mono text-amber-300">
+                    Identifier: {result.certificateNumber}
+                  </div>
                   <p className="text-xs sm:text-sm text-foreground-muted leading-relaxed">
                     {result.revocationNotice ||
-                      "This certificate was formerly issued but has since been revoked by SiteSecura Administration."}
+                      "This certificate is no longer valid. It has been officially revoked by SiteSecura Administration."}
                   </p>
                 </div>
               )}
 
-              {result.status === "Not Found" && (
+              {(result.status?.toUpperCase() === "NOT_FOUND" ||
+                result.status?.toUpperCase() === "NOT FOUND") && (
                 <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6 sm:p-8 space-y-3 text-center">
                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-red-500/20 text-red-400">
                     <ShieldAlert className="h-6 w-6" />
@@ -268,6 +272,18 @@ function VerifyContent() {
                   <p className="text-xs sm:text-sm text-foreground-muted max-w-md mx-auto leading-relaxed">
                     No verified certificate matches this identifier. Please double-check the
                     characters entered or scan the physical QR code directly.
+                  </p>
+                </div>
+              )}
+
+              {result.status?.toUpperCase() === "ERROR" && (
+                <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6 sm:p-8 space-y-3 text-center">
+                  <h3 className="text-base font-bold text-foreground">
+                    Verification Outage / Temporary Error
+                  </h3>
+                  <p className="text-xs sm:text-sm text-foreground-muted max-w-md mx-auto leading-relaxed">
+                    The certificate verification service could not verify this record at this time.
+                    Please retry in a few moments.
                   </p>
                 </div>
               )}

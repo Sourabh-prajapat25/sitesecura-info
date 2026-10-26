@@ -3,8 +3,13 @@ export type InternshipStatus =
   | "Onboarding"
   | "Active"
   | "Completed"
-  | "Certificate Issued"
   | "Withdrawn";
+
+export type CertificateStatus =
+  | "Not Eligible"
+  | "Eligible"
+  | "Issued"
+  | "Revoked";
 
 export type StorageMode = "production" | "development" | "test";
 
@@ -62,6 +67,10 @@ export interface InternRecord {
   certificateDriveLink?: string;
   certificateLocalFileName?: string;
   certificateIssueDate?: string;
+  certificateStatus?: CertificateStatus;
+  certificateRevokedAt?: string;
+  certificateRevokedBy?: string;
+  certificateRevocationReason?: string;
   hrNotes?: string;
   offerLetterRef?: string;
   createdBy: string;
@@ -93,8 +102,10 @@ export interface InternRegistrationInput {
   idempotencyKey?: string;
 }
 
+export type VerificationStatus = "VALID" | "REVOKED" | "NOT_FOUND" | "ERROR";
+
 export interface CertificateVerificationResult {
-  status: "Valid" | "Revoked" | "Not Found";
+  status: "Valid" | "Revoked" | "Not Found" | "VALID" | "REVOKED" | "NOT_FOUND" | "ERROR";
   certificateNumber?: string;
   internName?: string;
   role?: string;
@@ -104,6 +115,26 @@ export interface CertificateVerificationResult {
   issuingOrganization?: string;
   signatoryName?: string;
   signatoryTitle?: string;
-  revocationReason?: string;
+  revocationNotice?: string;
   revocationDate?: string;
+  error?: string;
+}
+
+export interface InternLookupResponse {
+  internId: string;
+  internName: string;
+  role: string;
+  startDate: string;
+  endDate: string;
+  internshipStatus: InternshipStatus;
+  certificateStatus: CertificateStatus;
+  certificateNumber?: string;
+  certificateIssueDate?: string;
+  downloadUrl?: string;
+}
+
+export interface CertificateRevocationInput {
+  internId?: string;
+  certificateNumber?: string;
+  reason: string;
 }

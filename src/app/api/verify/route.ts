@@ -23,7 +23,7 @@ async function handleVerification(request: NextRequest, certNumber: string) {
   if (!rateCheck.allowed) {
     return NextResponse.json(
       {
-        status: "Error",
+        status: "ERROR",
         error: "Verification rate limit exceeded. Please wait.",
         retryAfter: rateCheck.retryAfter,
       },
@@ -34,28 +34,43 @@ async function handleVerification(request: NextRequest, certNumber: string) {
   if (!certNumber || !isValidCertificateNumberFormat(certNumber)) {
     return NextResponse.json(
       {
-        status: "Not Found",
+        status: "NOT_FOUND",
         message: "Invalid or unrecognized certificate number format.",
       },
       { status: 400 }
     );
   }
 
-  const intern = await getInternByCertificateNumber(certNumber);
+  try {
+    const intern = await getInternByCertificateNumber(certNumber);
 
-  if (!intern || !intern.certificateNumber) {
-    return NextResponse.json(
-      {
-        status: "Not Found",
-        message: "No issued certificate matches the provided certificate identifier.",
-      },
-      { status: 404 }
-    );
-  }
+    if (!intern || !intern.certificateNumber) {
+      return NextResponse.json(
+        {
+          status: "NOT_FOUND",
+          message: "No issued certificate matches the provided certificate identifier.",
+        },
+        { status: 404 }
+      );
+    }
 
-  if (intern.status === "Withdrawn") {
+    if (
+      intern.certificateStatus === "Revoked" ||
+      intern.status === "Withdrawn" ||
+      intern.certificateRevokedAt
+    ) {
+      return NextResponse.json({
+        status: "REVOKED",
+        certificateNumber: intern.certificateNumber,
+        issuingOrganization: "SiteSecura",
+        revocationNotice:
+          "This certificate is no longer valid. It has been officially revoked by SiteSecura Administration.",
+        revocationDate: intern.certificateRevokedAt,
+      });
+    }
+
     return NextResponse.json({
-      status: "Revoked",
+      status: "VALID",
       certificateNumber: intern.certificateNumber,
       internName: intern.fullName,
       role: intern.customRole || intern.role,
@@ -63,20 +78,17 @@ async function handleVerification(request: NextRequest, certNumber: string) {
       endDate: intern.endDate,
       issueDate: intern.certificateIssueDate,
       issuingOrganization: "SiteSecura",
-      revocationNotice: "This certificate has been revoked by SiteSecura Administration.",
+      signatoryName: process.env.CERTIFICATE_SIGNATORY_NAME || "Sourabh K.",
+      signatoryTitle: process.env.CERTIFICATE_SIGNATORY_TITLE || "Director, People & Operations",
     });
+  } catch (err: any) {
+    console.error("[SiteSecura Certificate Verification] Unexpected error:", err);
+    return NextResponse.json(
+      {
+        status: "ERROR",
+        error: "Verification service is temporarily unavailable. Please retry in a moment.",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({
-    status: "Valid",
-    certificateNumber: intern.certificateNumber,
-    internName: intern.fullName,
-    role: intern.customRole || intern.role,
-    startDate: intern.startDate,
-    endDate: intern.endDate,
-    issueDate: intern.certificateIssueDate,
-    issuingOrganization: "SiteSecura",
-    signatoryName: process.env.CERTIFICATE_SIGNATORY_NAME || "Sourabh K.",
-    signatoryTitle: process.env.CERTIFICATE_SIGNATORY_TITLE || "Director, People & Operations",
-  });
 }

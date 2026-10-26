@@ -6,6 +6,7 @@ export type BadgeVariant =
   | "secondary"
   | "success"
   | "warning"
+  | "error"
   | "neutral";
 
 interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
@@ -28,6 +29,7 @@ export function Badge({
     secondary: "bg-secondary/10 text-secondary border-secondary/30",
     success: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
     warning: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+    error: "bg-red-500/10 text-red-400 border-red-500/30",
     neutral: "bg-slate-800/80 text-foreground-muted border-slate-700/60",
   };
 

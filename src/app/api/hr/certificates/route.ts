@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getHrSessionFromCookies, validateCsrfOrigin } from "@/lib/auth";
-import { getInternById, updateIntern } from "@/lib/storage/intern-store";
+import {
+  getInternById,
+  updateIntern,
+  checkCertificateEligibility,
+} from "@/lib/storage/intern-store";
 import { storeCertificate } from "@/lib/storage/drive-store";
 import { generateCertificateNumber } from "@/lib/id-generator";
 import { generateCertificatePdf } from "@/lib/certificate";
@@ -31,23 +35,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Intern record not found." }, { status: 404 });
     }
 
-    // Check if certificate already exists to prevent duplication
-    if (intern.certificateNumber) {
-      return NextResponse.json({
-        success: true,
-        message: "Certificate already issued for this intern.",
-        certificateNumber: intern.certificateNumber,
-        issueDate: intern.certificateIssueDate,
-        alreadyIssued: true,
-      });
-    }
-
-    // Verify internship is Completed
-    if (intern.status !== "Completed") {
+    // Server-enforced eligibility check (Completed tenure, valid dates, stable ID)
+    const eligibility = checkCertificateEligibility(intern);
+    if (!eligibility.eligible) {
       return NextResponse.json(
-        {
-          error: `Certificate can only be issued for interns with status 'Completed'. Current status is '${intern.status}'. Please update status first.`,
-        },
+        { error: eligibility.reason || "Intern is not eligible for certificate issuance." },
         { status: 400 }
       );
     }
@@ -69,16 +61,16 @@ export async function POST(request: NextRequest) {
     // Store PDF in Drive / local store
     const uploadResult = await storeCertificate(pdfBuffer, certNumber);
 
-    // Update Intern record
+    // Update Intern record: preserve status as 'Completed' and record certificateStatus as 'Issued'
     const updated = await updateIntern(
       intern.id,
       {
         certificateNumber: certNumber,
         certificateIssueDate: issueDate,
+        certificateStatus: "Issued",
         certificateDriveFileId: uploadResult.fileId,
         certificateDriveLink: uploadResult.driveLink,
         certificateLocalFileName: uploadResult.localFileName,
-        status: "Certificate Issued",
       },
       session.username
     );
@@ -91,10 +83,10 @@ export async function POST(request: NextRequest) {
       downloadUrl: `/api/certificates/${certNumber}/download`,
       intern: updated,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[SiteSecura Certificate] Error issuing certificate:", error);
     return NextResponse.json(
-      { error: "Failed to generate certificate." },
+      { error: error?.message || "Failed to generate certificate." },
       { status: 500 }
     );
   }

@@ -1,9 +1,16 @@
 import fs from "fs";
 import path from "path";
-import { InternRecord, InternshipStatus, StorageMode, INTERN_ROLES } from "@/types/intern";
+import {
+  InternRecord,
+  InternshipStatus,
+  StorageMode,
+  INTERN_ROLES,
+  CertificateStatus,
+} from "@/types/intern";
 import { getGoogleSheetsClient } from "@/lib/google/client";
 import { sanitizeForSpreadsheet } from "@/lib/sanitizer";
 import { getStorageMode } from "@/lib/storage/drive-store";
+import { isValidInternIdFormat } from "@/lib/id-generator";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const INTERNS_FILE = path.join(DATA_DIR, "interns.json");
@@ -37,6 +44,10 @@ export const SHEET_HEADERS = [
   "HR Notes",
   "Created By",
   "Last Updated Timestamp",
+  "Certificate Status",
+  "Certificate Revoked At",
+  "Certificate Revoked By",
+  "Certificate Revocation Reason",
 ];
 
 // In-Memory Test Store
@@ -46,6 +57,138 @@ let testIdempotencyMap = new Map<string, string>();
 export function resetTestStore(): void {
   testRecords = [];
   testIdempotencyMap.clear();
+}
+
+/**
+ * Validates status transitions in the internship lifecycle state machine.
+ * Enforces server-side transition rules.
+ */
+export function isValidStatusTransition(
+  currentStatus: InternshipStatus,
+  targetStatus: InternshipStatus,
+  isAdministrativeOverride: boolean = false
+): { allowed: boolean; reason?: string } {
+  if (currentStatus === targetStatus) {
+    return { allowed: true };
+  }
+
+  if (isAdministrativeOverride) {
+    return { allowed: true };
+  }
+
+  const allowedTransitions: Record<InternshipStatus, InternshipStatus[]> = {
+    Registered: ["Onboarding", "Withdrawn"],
+    Onboarding: ["Active", "Withdrawn"],
+    Active: ["Completed", "Withdrawn"],
+    Completed: ["Withdrawn"],
+    Withdrawn: [],
+  };
+
+  const allowed = allowedTransitions[currentStatus]?.includes(targetStatus);
+  if (!allowed) {
+    return {
+      allowed: false,
+      reason: `Lifecycle transition from '${currentStatus}' to '${targetStatus}' is prohibited. Allowed next states: ${
+        allowedTransitions[currentStatus]?.join(", ") || "none"
+      }.`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Validates whether an intern is eligible to receive an official completion certificate.
+ * Enforces all Stage 2 criteria:
+ * 1. Internship status must be 'Completed'
+ * 2. Required internship dates exist and are valid (YYYY-MM-DD, start <= end)
+ * 3. Stable intern ID exists
+ * 4. Full candidate legal name and role defined
+ * 5. No existing active certificate creates duplicate issuance
+ */
+export function checkCertificateEligibility(intern: InternRecord): {
+  eligible: boolean;
+  reason?: string;
+} {
+  if (intern.status !== "Completed") {
+    return {
+      eligible: false,
+      reason: `Internship status is '${intern.status}'. Only interns who have completed their tenure ('Completed') are eligible for a certificate.`,
+    };
+  }
+
+  if (!intern.id || !isValidInternIdFormat(intern.id)) {
+    return {
+      eligible: false,
+      reason: "Intern record does not have a valid, collision-safe Intern ID.",
+    };
+  }
+
+  if (!intern.fullName || intern.fullName.trim().length < 2) {
+    return {
+      eligible: false,
+      reason: "Candidate full legal name is missing or incomplete.",
+    };
+  }
+
+  if (!intern.role) {
+    return {
+      eligible: false,
+      reason: "Internship role is required for certificate generation.",
+    };
+  }
+
+  if (!intern.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(intern.startDate)) {
+    return {
+      eligible: false,
+      reason: "Valid internship start date (YYYY-MM-DD) is required.",
+    };
+  }
+
+  if (!intern.endDate || !/^\d{4}-\d{2}-\d{2}$/.test(intern.endDate)) {
+    return {
+      eligible: false,
+      reason: "Valid internship end date (YYYY-MM-DD) is required.",
+    };
+  }
+
+  const start = new Date(intern.startDate);
+  const end = new Date(intern.endDate);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
+    return {
+      eligible: false,
+      reason: "Internship start date must be on or before the end date.",
+    };
+  }
+
+  if (intern.certificateNumber && intern.certificateStatus !== "Revoked") {
+    return {
+      eligible: false,
+      reason: `Certificate ${intern.certificateNumber} is already active. Duplicate certificate issuance is prohibited.`,
+    };
+  }
+
+  return { eligible: true };
+}
+
+/**
+ * Computes the canonical CertificateStatus for an intern record.
+ */
+export function computeCertificateStatus(record: Partial<InternRecord>): CertificateStatus {
+  if (record.certificateStatus === "Revoked" || record.certificateRevokedAt) {
+    return "Revoked";
+  }
+  if (record.certificateNumber) {
+    return "Issued";
+  }
+  if (!record.status) {
+    return "Not Eligible";
+  }
+  const eligibility = checkCertificateEligibility(record as InternRecord);
+  if (eligibility.eligible) {
+    return "Eligible";
+  }
+  return "Not Eligible";
 }
 
 // In-Memory Cache for Sheets data (short-lived TTL: 10 seconds)
@@ -74,9 +217,11 @@ function ensureDataFile() {
 }
 
 /**
- * Transforms an InternRecord into an array of 26 sanitized values matching the Google Sheet columns.
+ * Transforms an InternRecord into an array of sanitized values matching the Google Sheet columns.
+ * Supports the 26 base columns plus 4 certificate lifecycle extension columns (columns 27-30).
  */
 export function recordToSheetRow(record: InternRecord): string[] {
+  const certStatus = record.certificateStatus || computeCertificateStatus(record);
   return [
     sanitizeForSpreadsheet(record.id),
     sanitizeForSpreadsheet(record.registrationTimestamp),
@@ -104,11 +249,16 @@ export function recordToSheetRow(record: InternRecord): string[] {
     sanitizeForSpreadsheet(record.hrNotes || ""),
     sanitizeForSpreadsheet(record.createdBy),
     sanitizeForSpreadsheet(record.lastUpdatedTimestamp),
+    sanitizeForSpreadsheet(certStatus),
+    sanitizeForSpreadsheet(record.certificateRevokedAt || ""),
+    sanitizeForSpreadsheet(record.certificateRevokedBy || ""),
+    sanitizeForSpreadsheet(record.certificateRevocationReason || ""),
   ];
 }
 
 /**
  * Parses a row array from Google Sheets back into an InternRecord.
+ * Gracefully handles legacy 26-column rows and extended 30-column rows.
  */
 export function sheetRowToRecord(row: any[]): InternRecord {
   const unescape = (val?: any): string => {
@@ -138,7 +288,23 @@ export function sheetRowToRecord(row: any[]): InternRecord {
   const courseYear = unescape(row[15]);
   const resumeDriveFileId = unescape(row[16]);
   const resumeDriveLink = unescape(row[17]);
-  const status = (unescape(row[18]) as InternshipStatus) || "Registered";
+
+  // Backward compatibility: normalize legacy "Certificate Issued" to "Completed"
+  const rawStatus = unescape(row[18]);
+  let status: InternshipStatus;
+  if (rawStatus === "Certificate Issued") {
+    status = "Completed";
+  } else if (
+    rawStatus === "Onboarding" ||
+    rawStatus === "Active" ||
+    rawStatus === "Completed" ||
+    rawStatus === "Withdrawn"
+  ) {
+    status = rawStatus;
+  } else {
+    status = "Registered";
+  }
+
   const certificateNumber = unescape(row[19]);
   const certificateDriveFileId = unescape(row[20]);
   const certificateDriveLink = unescape(row[21]);
@@ -146,6 +312,41 @@ export function sheetRowToRecord(row: any[]): InternRecord {
   const hrNotes = unescape(row[23]);
   const createdBy = unescape(row[24]) || "hr_admin";
   const lastUpdatedTimestamp = unescape(row[25]) || registrationTimestamp;
+
+  // Extended columns (27-30)
+  const rawCertStatus = row.length > 26 ? unescape(row[26]) : "";
+  const certificateRevokedAt = row.length > 27 ? unescape(row[27]) : undefined;
+  const certificateRevokedBy = row.length > 28 ? unescape(row[28]) : undefined;
+  const certificateRevocationReason = row.length > 29 ? unescape(row[29]) : undefined;
+
+  let certificateStatus: CertificateStatus;
+  if (rawCertStatus === "Revoked" || certificateRevokedAt) {
+    certificateStatus = "Revoked";
+  } else if (rawCertStatus === "Issued" || certificateNumber) {
+    certificateStatus = "Issued";
+  } else if (rawCertStatus === "Eligible") {
+    certificateStatus = "Eligible";
+  } else if (rawCertStatus === "Not Eligible") {
+    certificateStatus = "Not Eligible";
+  } else {
+    certificateStatus = computeCertificateStatus({
+      id,
+      registrationTimestamp,
+      fullName,
+      email,
+      phone,
+      city,
+      state,
+      role: rawRole,
+      startDate,
+      endDate,
+      status,
+      certificateNumber: certificateNumber || undefined,
+      createdBy,
+      lastUpdatedTimestamp,
+      informedConsent: true,
+    });
+  }
 
   return {
     id,
@@ -172,6 +373,10 @@ export function sheetRowToRecord(row: any[]): InternRecord {
     certificateDriveFileId: certificateDriveFileId || undefined,
     certificateDriveLink: certificateDriveLink || undefined,
     certificateIssueDate: certificateIssueDate || undefined,
+    certificateStatus,
+    certificateRevokedAt: certificateRevokedAt || undefined,
+    certificateRevokedBy: certificateRevokedBy || undefined,
+    certificateRevocationReason: certificateRevocationReason || undefined,
     hrNotes: hrNotes || undefined,
     createdBy,
     lastUpdatedTimestamp,
@@ -225,7 +430,7 @@ export async function verifySpreadsheetSetup(): Promise<{
       // Write header row
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${SHEET_NAME}!A1:Z1`,
+        range: `${SHEET_NAME}!A1:AD1`,
         valueInputOption: "RAW",
         requestBody: { values: [SHEET_HEADERS] },
       });
@@ -284,7 +489,7 @@ export async function getAllInterns(): Promise<InternRecord[]> {
     try {
       const res = await sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: `${SHEET_NAME}!A2:Z`, // Skip header row
+        range: `${SHEET_NAME}!A2:AD`, // Skip header row
       });
 
       const rows = res.data.values || [];
@@ -418,12 +623,12 @@ async function appendRowToGoogleSheet(record: InternRecord): Promise<void> {
   try {
     const headerCheck = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${SHEET_NAME}!A1:Z1`,
+      range: `${SHEET_NAME}!A1:AD1`,
     });
     if (!headerCheck.data.values || headerCheck.data.values.length === 0) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${SHEET_NAME}!A1:Z1`,
+        range: `${SHEET_NAME}!A1:AD1`,
         valueInputOption: "RAW",
         requestBody: { values: [SHEET_HEADERS] },
       });
@@ -435,7 +640,7 @@ async function appendRowToGoogleSheet(record: InternRecord): Promise<void> {
   const row = recordToSheetRow(record);
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:Z`,
+    range: `${SHEET_NAME}!A:AD`,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
@@ -474,7 +679,7 @@ async function updateRowInGoogleSheet(record: InternRecord): Promise<boolean> {
       const updatedRow = recordToSheetRow(record);
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${SHEET_NAME}!A${rowIndex}:Z${rowIndex}`,
+        range: `${SHEET_NAME}!A${rowIndex}:AD${rowIndex}`,
         valueInputOption: "USER_ENTERED",
         requestBody: {
           values: [updatedRow],
@@ -569,11 +774,21 @@ export async function updateIntern(
     if (idx === -1) return null;
     const current = testRecords[idx];
     const auditLog = current.auditLog || [];
+    const action =
+      updates.certificateStatus === "Revoked"
+        ? "CERTIFICATE_REVOKED"
+        : updates.certificateNumber && !current.certificateNumber
+        ? "CERTIFICATE_ISSUED"
+        : "UPDATE";
+    const details =
+      updates.certificateRevocationReason
+        ? `Reason: ${updates.certificateRevocationReason}`
+        : Object.keys(updates).join(", ");
     auditLog.push({
       timestamp: now,
       actor,
-      action: "UPDATE",
-      details: Object.keys(updates).join(", "),
+      action,
+      details,
     });
     const updated = { ...current, ...updates, auditLog, lastUpdatedTimestamp: now };
     testRecords[idx] = updated;
@@ -591,15 +806,29 @@ export async function updateIntern(
   if (updates.certificateNumber && updates.certificateNumber !== current.certificateNumber) {
     changesSummary.push(`Certificate issued: ${updates.certificateNumber}`);
   }
+  if (updates.certificateStatus === "Revoked") {
+    changesSummary.push(
+      `Certificate revoked${
+        updates.certificateRevocationReason ? `: ${updates.certificateRevocationReason}` : ""
+      }`
+    );
+  }
   if (updates.hrNotes !== undefined && updates.hrNotes !== current.hrNotes) {
     changesSummary.push(`HR notes updated`);
   }
+
+  const action =
+    updates.certificateStatus === "Revoked"
+      ? "CERTIFICATE_REVOKED"
+      : updates.certificateNumber && !current.certificateNumber
+      ? "CERTIFICATE_ISSUED"
+      : "UPDATE";
 
   if (changesSummary.length > 0) {
     auditLog.push({
       timestamp: now,
       actor,
-      action: "UPDATE",
+      action,
       details: changesSummary.join("; "),
     });
   }
@@ -636,5 +865,52 @@ export async function updateIntern(
   }
 
   invalidateCache();
+  return updated;
+}
+
+/**
+ * Revokes an issued certificate with an explicit HR reason and audit trail.
+ * Keeps the intern's registration, tenure details, and certificate number intact.
+ */
+export async function revokeCertificate(
+  identifier: string,
+  reason: string,
+  actor: string = "hr_admin"
+): Promise<InternRecord> {
+  const cleanId = identifier.trim().toUpperCase();
+  const now = new Date().toISOString();
+
+  let intern = await getInternByCertificateNumber(cleanId);
+  if (!intern) {
+    intern = await getInternById(cleanId);
+  }
+  if (!intern) {
+    throw new Error(`No intern record found matching identifier '${cleanId}'.`);
+  }
+
+  if (!intern.certificateNumber) {
+    throw new Error(`Intern ${intern.id} does not have an issued certificate to revoke.`);
+  }
+
+  if (intern.certificateStatus === "Revoked") {
+    throw new Error(`Certificate ${intern.certificateNumber} is already revoked.`);
+  }
+
+  if (!reason || reason.trim().length < 5) {
+    throw new Error("A valid internal revocation reason (minimum 5 characters) is required.");
+  }
+
+  const updates: Partial<InternRecord> = {
+    certificateStatus: "Revoked",
+    certificateRevokedAt: now,
+    certificateRevokedBy: actor,
+    certificateRevocationReason: reason.trim(),
+  };
+
+  const updated = await updateIntern(intern.id, updates, actor);
+  if (!updated) {
+    throw new Error(`Failed to update record for intern ${intern.id}.`);
+  }
+
   return updated;
 }

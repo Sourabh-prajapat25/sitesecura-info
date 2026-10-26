@@ -65,7 +65,7 @@ The system consists of:
 1. Open [Google Sheets](https://sheets.new) and create a new blank spreadsheet.
 2. Rename the spreadsheet to `SiteSecura Interns Register (Internal)`.
 3. Rename the first sheet tab from `Sheet1` to **`Interns`** (exact name).
-4. (Optional) Paste the 26 column headers into row 1 (the system auto-creates them on first write if empty):
+4. (Optional) Paste the 30 column headers into row 1 (the system auto-creates them on first write if empty):
    1. `Intern ID`
    2. `Registration Timestamp (UTC)`
    3. `Full Name`
@@ -92,6 +92,10 @@ The system consists of:
    24. `HR Notes`
    25. `Created By`
    26. `Last Updated Timestamp`
+   27. `Certificate Status` (Stage 2 extension: `Not Eligible`, `Eligible`, `Issued`, `Revoked`)
+   28. `Certificate Revoked At`
+   29. `Certificate Revoked By`
+   30. `Certificate Revocation Reason`
 
 ### Step 3.2 — Share the Spreadsheet with the Service Account
 1. Click the **Share** button in the top right.
@@ -182,20 +186,33 @@ The system consists of:
 2. Update their status from `Active` to **`Completed`** and click Save.
 3. In the Certificate section, click **Issue Completion Certificate**.
 4. The system:
+   - Validates eligibility (completion status, valid start/end dates, collision-free ID).
    - Generates an immutable Certificate Number (`SS-CERT-YYYY-XXXXXX`).
    - Produces a landscape PDF with SiteSecura branding and verification QR code.
-   - Uploads the certificate to the private Drive folder.
-   - Updates the intern's status to `Certificate Issued`.
+   - Uploads the certificate to private Google Drive storage.
+   - Sets `certificateStatus` to `Issued` while keeping status `Completed`.
+
+### Revoking an Issued Certificate
+1. When necessary for audit or disciplinary reasons, go to `/hr-portal/certificates` or `/hr-portal/interns/[id]`.
+2. Click **Revoke Certificate**.
+3. Enter the required internal revocation reason (minimum 5 characters).
+4. The system:
+   - Sets `certificateStatus` to `Revoked` and records timestamp, actor, and reason.
+   - Appends an immutable entry to the intern's internal audit log.
+   - Immediately revokes public verification on `/verify-internship` (displays `REVOKED` badge).
+   - Blocks all subsequent PDF downloads with HTTP `410 Gone`.
+   - Never exposes internal revocation reasons to public lookups.
 
 ### How Interns Access Their Certificate
 1. The intern visits `https://sitesecura.info/intern-portal`.
-2. They enter their Intern ID (`SS-INT-YYYY-XXXXXX`).
-3. If their certificate is issued, a green **Download Certificate PDF** button appears.
+2. They enter BOTH their Intern ID (`SS-INT-YYYY-XXXXXX`) AND their registered email address.
+3. The server validates both fields (with anti-enumeration constant feedback).
+4. If their certificate is issued, a signed 30-minute HMAC download grant token is generated and a **Download Official Certificate (PDF)** button appears.
 
 ### How Third Parties Verify a Certificate
 1. Visit `https://sitesecura.info/verify-internship`.
 2. Enter the Certificate Number or scan the QR code printed on the PDF.
-3. The server validates the record and displays authenticity confirmation without exposing private personal information.
+3. The server validates the record and displays authenticity confirmation (`VALID`, `REVOKED`, or `NOT_FOUND`) without exposing private personal information.
 
 ---
 
