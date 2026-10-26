@@ -44,7 +44,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized access." }, { status: 401 });
   }
 
-  const all = getAllInterns();
+  const all = await getAllInterns();
 
   const lines = [CSV_HEADERS.map((h) => `"${h}"`).join(",")];
 

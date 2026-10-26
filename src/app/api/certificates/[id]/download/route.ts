@@ -16,7 +16,7 @@ export async function GET(
     );
   }
 
-  const intern = getInternByCertificateNumber(certNumber);
+  const intern = await getInternByCertificateNumber(certNumber);
   if (!intern || !intern.certificateNumber) {
     return NextResponse.json(
       { error: "Certificate record not found." },

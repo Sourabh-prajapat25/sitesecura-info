@@ -41,7 +41,7 @@ async function handleVerification(request: NextRequest, certNumber: string) {
     );
   }
 
-  const intern = getInternByCertificateNumber(certNumber);
+  const intern = await getInternByCertificateNumber(certNumber);
 
   if (!intern || !intern.certificateNumber) {
     return NextResponse.json(

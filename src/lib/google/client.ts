@@ -1,5 +1,9 @@
 import { google } from "googleapis";
 
+export function isGoogleConfigured(): boolean {
+  return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY);
+}
+
 /**
  * Returns an authenticated Google Auth client using service account credentials
  * specified in environment variables.

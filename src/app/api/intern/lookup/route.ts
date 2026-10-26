@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const intern = getInternById(internId);
+    const intern = await getInternById(internId);
     if (!intern) {
       return NextResponse.json(
         { error: "No matching record found for the provided Intern ID." },

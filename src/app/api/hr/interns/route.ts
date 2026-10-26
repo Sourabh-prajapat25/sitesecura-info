@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getHrSessionFromCookies } from "@/lib/auth";
+import { getHrSessionFromCookies, validateCsrfOrigin } from "@/lib/auth";
 import {
   getAllInterns,
+  getInternById,
+  getInternByEmail,
   createIntern,
   internIdExists,
   getIdempotencyRecord,
   setIdempotencyRecord,
 } from "@/lib/storage/intern-store";
-import { storeResume } from "@/lib/storage/drive-store";
+import { storeResume, deleteDriveFile } from "@/lib/storage/drive-store";
 import { generateInternId } from "@/lib/id-generator";
 import {
   isValidEmail,
@@ -15,7 +17,7 @@ import {
   isValidUrl,
   isPdfBuffer,
 } from "@/lib/sanitizer";
-import { InternRecord, InternshipStatus } from "@/types/intern";
+import { InternRecord } from "@/types/intern";
 
 const MAX_RESUME_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -32,7 +34,7 @@ export async function GET(request: NextRequest) {
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const limit = Math.max(1, Math.min(100, parseInt(searchParams.get("limit") || "15", 10)));
 
-  const all = getAllInterns();
+  const all = await getAllInterns();
 
   // Metrics computation
   const now = new Date();
@@ -94,16 +96,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized access." }, { status: 401 });
   }
 
+  // CSRF Origin validation
+  if (!validateCsrfOrigin(request)) {
+    return NextResponse.json(
+      { error: "Invalid request origin (CSRF check failed)." },
+      { status: 403 }
+    );
+  }
+
   try {
     const formData = await request.formData();
 
     // Idempotency check
     const idempotencyKey = formData.get("idempotencyKey") as string | null;
     if (idempotencyKey) {
-      const cachedId = getIdempotencyRecord(idempotencyKey);
+      const cachedId = await getIdempotencyRecord(idempotencyKey);
       if (cachedId) {
-        const all = getAllInterns();
-        const existing = all.find((i) => i.id === cachedId);
+        const existing = await getInternById(cachedId);
         if (existing) {
           return NextResponse.json({
             success: true,
@@ -163,6 +172,20 @@ export async function POST(request: NextRequest) {
       errors.informedConsent = "Candidate information consent confirmation is mandatory.";
     }
 
+    // Check duplicate email
+    if (isValidEmail(email)) {
+      const existingCandidate = await getInternByEmail(email);
+      if (existingCandidate) {
+        return NextResponse.json(
+          {
+            error: `Candidate with email "${email}" is already registered (Intern ID: ${existingCandidate.id}). Duplicate registrations are prohibited.`,
+            existingId: existingCandidate.id,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     // Optional Fields URL Validation
     const linkedinUrl = ((formData.get("linkedinUrl") as string) || "").trim();
     const instagramUrl = ((formData.get("instagramUrl") as string) || "").trim();
@@ -214,7 +237,7 @@ export async function POST(request: NextRequest) {
     let attempts = 0;
     while (attempts < 5) {
       const candidate = generateInternId();
-      if (!internIdExists(candidate)) {
+      if (!(await internIdExists(candidate))) {
         internId = candidate;
         break;
       }
@@ -229,7 +252,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Store Resume securely
-    const uploadResult = await storeResume(buffer, internId);
+    let uploadResult;
+    try {
+      uploadResult = await storeResume(buffer, internId);
+    } catch (uploadError: any) {
+      console.error("[SiteSecura Registration] Resume storage failed:", uploadError);
+      return NextResponse.json(
+        { error: `Resume upload failed: ${uploadError?.message || "Storage error"}` },
+        { status: 500 }
+      );
+    }
 
     const nowIso = new Date().toISOString();
     const newRecord: InternRecord = {
@@ -269,10 +301,28 @@ export async function POST(request: NextRequest) {
       ],
     };
 
-    const saved = await createIntern(newRecord);
+    let saved: InternRecord;
+    try {
+      saved = await createIntern(newRecord);
+    } catch (storeError: any) {
+      console.error("[SiteSecura Registration] Failed to save intern record, rolling back resume:", storeError);
+      if (uploadResult?.fileId) {
+        try {
+          await deleteDriveFile(uploadResult.fileId);
+        } catch (cleanupError) {
+          console.warn("[SiteSecura Registration] Drive file rollback failed:", cleanupError);
+        }
+      }
+      return NextResponse.json(
+        {
+          error: `Failed to persist intern record: ${storeError?.message || "Storage error"}`,
+        },
+        { status: 500 }
+      );
+    }
 
     if (idempotencyKey) {
-      setIdempotencyRecord(idempotencyKey, internId);
+      await setIdempotencyRecord(idempotencyKey, internId);
     }
 
     return NextResponse.json(
@@ -283,7 +333,7 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error("[SiteSecura Registration] Error processing registration:", error);
     return NextResponse.json(
       { error: "An unexpected error occurred while saving the registration." },

@@ -13,7 +13,7 @@ export async function GET(
   }
 
   const internId = params.id;
-  const intern = getInternById(internId);
+  const intern = await getInternById(internId);
 
   if (!intern) {
     return NextResponse.json({ error: "Intern record not found." }, { status: 404 });

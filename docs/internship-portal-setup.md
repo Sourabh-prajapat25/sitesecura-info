@@ -124,6 +124,7 @@ The system consists of:
 
 | Variable Name | Required | Scope | Description & Example |
 | :--- | :---: | :---: | :--- |
+| `STORAGE_MODE` | No | Server | `production` (default; strictly enforces Google Sheets & Drive; fails explicitly if unconfigured), `development` (permits local JSON fallback), or `test` (in-memory) |
 | `HR_PORTAL_PASSKEY` | Yes | Server | Strong passkey for `/hr-portal` login. E.g. `SiteSecura#HR2026!SecureKey` |
 | `HR_SESSION_SECRET` | Yes | Server | Random string (min 32 chars) for HMAC SHA-256 session signing |
 | `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Yes | Server | Service account email from GCP JSON |
@@ -158,8 +159,12 @@ The system consists of:
   - `/api/hr/login`: 5 failed attempts per 15-minute window with 15-minute lockout.
   - `/api/intern/lookup`: 10 lookups per 10 minutes.
   - `/api/verify`: 20 verifications per 10 minutes.
+- **CSRF / Origin Validation**: All state-changing mutation endpoints (`POST /api/hr/interns`, `PATCH /api/hr/interns/[id]`, `POST /api/hr/certificates`) enforce strict Origin and Referer verification against `sitesecura.info` and preview deployments.
+- **Duplicate Email Prevention**: Registration performs an indexed check on candidate email addresses. Attempting to register an email already registered returns HTTP `409 Conflict` with the existing Intern ID.
 - **Formula Injection Defense**: All user inputs written to Google Sheets or exported to CSV are neutralized using `sanitizeForSpreadsheet()`.
 - **Private Resumes**: Resume files are accessible only via the authenticated HR route (`/api/hr/resumes/[id]`), which enforces server-side session checks.
+- **Rollback on Downstream Failure**: If resume storage succeeds but downstream record persistence fails, the uploaded Drive file is automatically purged via `deleteDriveFile()`.
+- **Diagnostics Health Check (`/api/hr/health`)**: Protected HR endpoint that verifies active storage mode, service account credentials, Google Sheets worksheet status, and Google Drive folder accessibility.
 
 ---
 

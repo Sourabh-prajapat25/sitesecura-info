@@ -223,3 +223,50 @@ export function getClientIdentifier(request: NextRequest): string {
   }
   return "127.0.0.1";
 }
+
+/**
+ * Validates request Origin or Referer to prevent Cross-Site Request Forgery (CSRF).
+ * Applies to state-changing methods (POST, PUT, PATCH, DELETE).
+ * Exempt in test mode.
+ */
+export function validateCsrfOrigin(request: NextRequest): boolean {
+  if (process.env.STORAGE_MODE === "test" || process.env.NODE_ENV === "test") {
+    return true;
+  }
+
+  const origin = request.headers.get("origin");
+  const referer = request.headers.get("referer");
+  const host = request.headers.get("host") || request.headers.get("x-forwarded-host");
+
+  const allowedDomainSuffixes = [
+    "sitesecura.info",
+    "vercel.app",
+    "localhost:3000",
+    "127.0.0.1:3000",
+  ];
+
+  const checkUrl = (urlStr: string): boolean => {
+    try {
+      const parsed = new URL(urlStr);
+      const parsedHost = parsed.host.toLowerCase();
+      if (host && parsedHost === host.toLowerCase()) {
+        return true;
+      }
+      return allowedDomainSuffixes.some(
+        (suffix) => parsedHost === suffix || parsedHost.endsWith(`.${suffix}`)
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  if (origin) {
+    return checkUrl(origin);
+  }
+  if (referer) {
+    return checkUrl(referer);
+  }
+
+  // If neither origin nor referer header is provided on a browser mutation, reject
+  return false;
+}

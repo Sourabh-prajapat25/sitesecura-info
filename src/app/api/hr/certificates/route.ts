@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getHrSessionFromCookies } from "@/lib/auth";
+import { getHrSessionFromCookies, validateCsrfOrigin } from "@/lib/auth";
 import { getInternById, updateIntern } from "@/lib/storage/intern-store";
 import { storeCertificate } from "@/lib/storage/drive-store";
 import { generateCertificateNumber } from "@/lib/id-generator";
@@ -11,6 +11,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized access." }, { status: 401 });
   }
 
+  if (!validateCsrfOrigin(request)) {
+    return NextResponse.json(
+      { error: "Invalid request origin (CSRF check failed)." },
+      { status: 403 }
+    );
+  }
+
   try {
     const body = await request.json().catch(() => ({}));
     const internId = (body.internId || "").trim();
@@ -19,7 +26,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Intern ID is required." }, { status: 400 });
     }
 
-    const intern = getInternById(internId);
+    const intern = await getInternById(internId);
     if (!intern) {
       return NextResponse.json({ error: "Intern record not found." }, { status: 404 });
     }

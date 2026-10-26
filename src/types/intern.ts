@@ -6,6 +6,8 @@ export type InternshipStatus =
   | "Certificate Issued"
   | "Withdrawn";
 
+export type StorageMode = "production" | "development" | "test";
+
 export const INTERN_ROLES = [
   "HR Intern",
   "Social Media Intern",
@@ -65,6 +67,7 @@ export interface InternRecord {
   createdBy: string;
   lastUpdatedTimestamp: string;
   informedConsent: boolean;
+  sheetsSyncStatus?: "synced" | "pending" | "failed";
   auditLog?: AuditLogEntry[];
 }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getHrSessionFromCookies } from "@/lib/auth";
+import { getHrSessionFromCookies, validateCsrfOrigin } from "@/lib/auth";
 import { getInternById, updateIntern } from "@/lib/storage/intern-store";
 import { InternshipStatus } from "@/types/intern";
 
@@ -22,7 +22,7 @@ export async function GET(
   }
 
   const internId = params.id;
-  const intern = getInternById(internId);
+  const intern = await getInternById(internId);
 
   if (!intern) {
     return NextResponse.json({ error: "Intern record not found." }, { status: 404 });
@@ -40,8 +40,15 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized access." }, { status: 401 });
   }
 
+  if (!validateCsrfOrigin(request)) {
+    return NextResponse.json(
+      { error: "Invalid request origin (CSRF check failed)." },
+      { status: 403 }
+    );
+  }
+
   const internId = params.id;
-  const existing = getInternById(internId);
+  const existing = await getInternById(internId);
   if (!existing) {
     return NextResponse.json({ error: "Intern record not found." }, { status: 404 });
   }
