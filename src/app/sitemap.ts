@@ -8,6 +8,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/product",
     "/careers",
     "/internships",
+    "/internship-program",
+    "/intern-portal",
+    "/verify-internship",
     "/apply",
     "/contact",
     "/privacy",
@@ -20,7 +23,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return routes.map((route) => ({
     url: `${siteConfig.siteUrl}${route}`,
     lastModified: now,
-    changeFrequency: route === "" || route === "/careers" || route === "/internships" ? "weekly" : "monthly",
-    priority: route === "" ? 1.0 : route === "/product" || route === "/about" ? 0.8 : 0.6,
+    changeFrequency:
+      route === "" ||
+      route === "/careers" ||
+      route === "/internships" ||
+      route === "/internship-program"
+        ? "weekly"
+        : "monthly",
+    priority:
+      route === ""
+        ? 1.0
+        : route === "/product" || route === "/about" || route === "/internship-program"
+        ? 0.8
+        : 0.6,
   }));
 }

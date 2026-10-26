@@ -91,8 +91,11 @@ export const siteConfig: SiteConfig = {
       { label: "Careers Overview", href: "/careers" },
       { label: "Open Opportunities", href: "/careers#opportunities" },
       { label: "Internship Tracks", href: "/internships" },
+      { label: "Internship Program", href: "/internship-program" },
+      { label: "Intern Status & Certificate", href: "/intern-portal" },
+      { label: "Verify Certificate", href: "/verify-internship" },
       { label: "Expression of Interest", href: "/apply" },
-      { label: "Recruitment FAQ", href: "/careers#faq" },
+      { label: "HR Portal (Internal)", href: "/hr-portal" },
     ],
     legal: [
       { label: "Privacy Policy", href: "/privacy" },
