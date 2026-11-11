@@ -37,7 +37,7 @@ export function FinalCtaSection() {
                 rel="noopener noreferrer"
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-white text-[#14243A] hover:bg-blue-50 font-extrabold text-base shadow-lg hover:shadow-xl transition-all"
               >
-                Join Internship Program — ₹99
+                <span>Join Internship Program</span>
                 <ArrowRight className="w-5 h-5 text-[#2563EB]" />
               </a>
               <a

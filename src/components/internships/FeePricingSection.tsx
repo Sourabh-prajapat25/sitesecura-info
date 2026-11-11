@@ -162,7 +162,7 @@ export function FeePricingSection() {
                   rel="noopener noreferrer"
                   className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white font-bold text-sm shadow-md hover:shadow-lg transition-all"
                 >
-                  Join Internship Program — ₹99
+                  <span>Join Internship Program</span>
                   <ArrowRight className="w-4 h-4" />
                 </a>
               </div>

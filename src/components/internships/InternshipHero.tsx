@@ -69,9 +69,9 @@ export function InternshipHero() {
               <a
                 href={OFFICIAL_RAZORPAY_URL}
                 className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white text-base font-semibold shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
-                aria-label="Join Internship Program for 99 rupees on Razorpay"
+                aria-label="Join Internship Program on Razorpay"
               >
-                <span>Join Internship Program — ₹99</span>
+                <span>Join Internship Program</span>
                 <ArrowRight className="h-4 w-4" />
               </a>
 
