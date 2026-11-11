@@ -49,6 +49,16 @@ import { NextRequest } from "next/server";
 import { POST as internLookupPost } from "../src/app/api/intern/lookup/route";
 import { GET as verifyGet, POST as verifyPost } from "../src/app/api/verify/route";
 import { GET as certDownloadGet } from "../src/app/api/certificates/[id]/download/route";
+import { siteConfig } from "../src/config/site";
+import {
+  OFFICIAL_RAZORPAY_URL,
+  RAZORPAY_INTERNSHIP_URL,
+  INTERNSHIP_DOMAINS,
+  PROGRAM_DELIVERABLES,
+  INTERNSHIP_FAQS,
+  TIMELINE_STEPS,
+  WHAT_YOU_WILL_LEARN,
+} from "../src/components/internships/data";
 
 let passedCount = 0;
 let failedCount = 0;
@@ -803,6 +813,67 @@ async function main() {
     assert.strictEqual(revokedRes.status, 410);
     const revokedBody = await revokedRes.json();
     assert.ok(revokedBody.error.includes("revoked"));
+  });
+
+  await runTest("26. Paid internship landing page data integrity and Razorpay destination", async () => {
+    // 1. Check exact required Razorpay URL
+    const expectedUrl = "https://rzp.io/rzp/6YVhqsy";
+    assert.strictEqual(OFFICIAL_RAZORPAY_URL, expectedUrl);
+    assert.strictEqual(RAZORPAY_INTERNSHIP_URL, expectedUrl);
+    assert.strictEqual(siteConfig.forms.razorpayInternshipUrl, expectedUrl);
+
+    // 2. Validate all 13 domain roles
+    assert.strictEqual(INTERNSHIP_DOMAINS.length, 13);
+    const techRoles = INTERNSHIP_DOMAINS.filter(r => r.category === "technology");
+    const bizRoles = INTERNSHIP_DOMAINS.filter(r => r.category === "business");
+    assert.strictEqual(techRoles.length, 7);
+    assert.strictEqual(bizRoles.length, 6);
+
+    // Check unique IDs and non-empty skills
+    const ids = new Set<string>();
+    for (const role of INTERNSHIP_DOMAINS) {
+      assert.ok(role.id && !ids.has(role.id), `Duplicate or empty role id: ${role.id}`);
+      ids.add(role.id);
+      assert.ok(role.title.length > 0);
+      assert.ok(role.description.length > 0);
+      assert.ok(role.skills.length >= 3, `Role ${role.id} should have at least 3 skills`);
+    }
+
+    // 3. Validate 8 deliverables
+    assert.strictEqual(PROGRAM_DELIVERABLES.length, 8);
+    for (const d of PROGRAM_DELIVERABLES) {
+      assert.ok(d.id && d.title && d.description);
+    }
+
+    // 4. Validate 5 timeline steps
+    assert.strictEqual(TIMELINE_STEPS.length, 5);
+
+    // 5. Validate 4 learning pillars
+    assert.strictEqual(WHAT_YOU_WILL_LEARN.length, 4);
+
+    // 6. Validate 10 FAQs
+    assert.strictEqual(INTERNSHIP_FAQS.length, 10);
+    assert.ok(INTERNSHIP_FAQS[0].question.includes("paid"));
+    assert.ok(INTERNSHIP_FAQS[1].question.includes("₹99 fee"));
+    assert.ok(INTERNSHIP_FAQS[9].answer.includes("/verify-internship"));
+  });
+
+  await runTest("27. Brand safety: No forbidden guarantees or fabricated metrics in landing content", async () => {
+    const serialized = JSON.stringify({
+      domains: INTERNSHIP_DOMAINS,
+      deliverables: PROGRAM_DELIVERABLES,
+      faqs: INTERNSHIP_FAQS,
+      timeline: TIMELINE_STEPS,
+      learning: WHAT_YOU_WILL_LEARN,
+    }).toLowerCase();
+
+    // Must NOT contain deceptive false placement or automatic certificate claims
+    assert.ok(!serialized.includes("100% job guarantee"));
+    assert.ok(!serialized.includes("guaranteed placement"));
+    assert.ok(!serialized.includes("guaranteed stipend"));
+    assert.ok(!serialized.includes("10,000+ students"));
+    assert.ok(!serialized.includes("50,000+ students"));
+    assert.ok(!serialized.includes("partners with google"));
   });
 
   console.log("\n-------------------------------------------------------");

@@ -20,6 +20,7 @@ export interface SiteConfig {
     generalApplicationUrl: string;
     internshipApplicationUrl: string;
     careersApplicationUrl: string;
+    razorpayInternshipUrl: string;
   };
   socials: {
     github?: string;
@@ -58,6 +59,7 @@ export const siteConfig: SiteConfig = {
       process.env.NEXT_PUBLIC_CAREERS_FORM_URL ||
       process.env.NEXT_PUBLIC_APPLICATION_FORM_URL ||
       "",
+    razorpayInternshipUrl: "https://rzp.io/rzp/6YVhqsy",
   },
   socials: {
     // Only valid URLs when configured; kept undefined/empty otherwise
